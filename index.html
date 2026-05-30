@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>CameraViewExp</title>
+  <style>
+    :root {
+      --apple-blue: #0A84FF;
+      --apple-yellow: #FFD60A;
+      --apple-label: #FFFFFF;
+      --apple-fill: rgba(72, 72, 74, 0.72);
+      --blur: saturate(180%) blur(20px);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      width: 100%;
+      height: 100dvh;
+      background: #000;
+    }
+
+    .view {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #e4e4e4;
+      overflow: hidden;
+    }
+
+    @media (min-width: 640px) {
+      .app {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: #1C1C1E;
+      }
+      .view {
+        width: auto;
+        height: 100%;
+        max-height: calc(100dvh - 2rem);
+        aspect-ratio: 9 / 16;
+        max-width: min(390px, 100vw - 2rem);
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+      }
+    }
+
+    #out {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .status {
+      position: absolute;
+      top: max(1rem, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--apple-label);
+      background: var(--apple-fill);
+      backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur);
+      padding: 0.5rem 0.875rem;
+      border-radius: 100px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      white-space: nowrap;
+    }
+
+    .status.show { opacity: 1; }
+    .status.err { background: rgba(255, 69, 58, 0.45); }
+
+    video, #file { display: none; }
+
+    .controls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 10;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      padding: 0 1.625rem;
+      padding-bottom: max(1.375rem, env(safe-area-inset-bottom));
+      pointer-events: none;
+    }
+
+    .controls > * { pointer-events: auto; }
+
+    .controls-right {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.875rem;
+    }
+
+    .btn-upload {
+      width: 3.25rem;
+      height: 3.25rem;
+      border: none;
+      border-radius: 50%;
+      background: rgba(72, 72, 74, 0.78);
+      backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur);
+      color: var(--apple-blue);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.12s ease, opacity 0.12s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-upload svg { width: 1.375rem; height: 1.375rem; }
+    .btn-upload:active { transform: scale(0.94); opacity: 0.85; }
+
+    .btn-flip {
+      display: none;
+      width: 2.75rem;
+      height: 2.75rem;
+      border: none;
+      border-radius: 50%;
+      background: rgba(72, 72, 74, 0.78);
+      backdrop-filter: var(--blur);
+      -webkit-backdrop-filter: var(--blur);
+      color: var(--apple-label);
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-flip svg { width: 1.25rem; height: 1.25rem; }
+    .btn-flip:active { opacity: 0.65; transform: scale(0.94); }
+
+    @media (max-width: 639px) {
+      .btn-flip { display: inline-flex; }
+    }
+
+    .btn-save {
+      width: 4.75rem;
+      height: 4.75rem;
+      border: 4px solid #FFFFFF;
+      border-radius: 50%;
+      background: var(--apple-yellow);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      padding: 0;
+      transition: transform 0.12s ease;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+    }
+
+    .btn-save svg {
+      width: 1.75rem;
+      height: 1.75rem;
+      color: #000000;
+    }
+
+    .btn-save:active { transform: scale(0.94); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="view" id="view">
+      <canvas id="out"></canvas>
+      <p class="status" id="status"></p>
+
+      <nav class="controls" aria-label="Controls">
+        <label class="btn-upload" for="file" aria-label="Upload">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5"/><path d="M7 10l5-5 5 5"/>
+          </svg>
+        </label>
+        <input type="file" id="file" accept="image/*" />
+
+        <div class="controls-right">
+          <button type="button" class="btn-flip" id="flipBtn" aria-label="Flip camera">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7h13a4 4 0 0 1 0 8H7"/><path d="M7 11L3 7l4-4"/>
+              <path d="M21 17H8a4 4 0 0 1 0-8h9"/><path d="M17 13l4 4-4 4"/>
+            </svg>
+          </button>
+          <button type="button" class="btn-save" id="saveBtn" aria-label="Save image">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 7h1.5l1-1.5h3L15.5 7H17a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm3 10.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z"/>
+            </svg>
+          </button>
+        </div>
+      </nav>
+    </div>
+
+    <video id="cam" autoplay playsinline muted webkit-playsinline></video>
+  </div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
