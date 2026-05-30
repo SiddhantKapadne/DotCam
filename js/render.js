@@ -1,9 +1,13 @@
-import { CANVAS, GRID_STYLE, ANIM } from './config.js';
+import { CANVAS, GRID_STYLE, ANIM, COLOR_FILTER, STABILITY } from './config.js';
 
 const ANALYSIS_W = 320;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function clamp01(v) {
+  return clamp(v, 0, 1);
 }
 
 function rgbStr(r, g, b) {
@@ -16,6 +20,67 @@ function lum(r, g, b) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) * 0.5;
+  if (max === min) return [0, 0, l];
+
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+
+  return [h * 360, s, l];
+}
+
+function hueMatches(h, band) {
+  if (band.wrap) return h >= band.min || h <= band.max;
+  return h >= band.min && h <= band.max;
+}
+
+function isAllowedColor(h, s) {
+  if (s < COLOR_FILTER.minSaturation) return false;
+  return COLOR_FILTER.hues.some((band) => hueMatches(h, band));
+}
+
+function colorStrength(h, s) {
+  if (!COLOR_FILTER.enabled) return 0;
+  if (s < COLOR_FILTER.minSaturation * 0.55) return 0;
+  if (!COLOR_FILTER.hues.some((band) => hueMatches(h, band))) return 0;
+  return clamp01((s - COLOR_FILTER.minSaturation * 0.55) / (1 - COLOR_FILTER.minSaturation * 0.55));
+}
+
+function filterPixel(r, g, b) {
+  if (!COLOR_FILTER.enabled) return [r, g, b];
+
+  const [h, s] = rgbToHsl(r, g, b);
+  if (isAllowedColor(h, s)) return [r, g, b];
+
+  const grey = lum(r, g, b);
+  return [grey, grey, grey];
+}
+
+function applyColorFilter(imageData) {
+  if (!COLOR_FILTER.enabled) return imageData;
+
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const [r, g, b] = filterPixel(d[i], d[i + 1], d[i + 2]);
+    d[i] = r;
+    d[i + 1] = g;
+    d[i + 2] = b;
+  }
+
+  return imageData;
 }
 
 function sampleRingColor(data, fw, fh, acx, acy, dist) {
@@ -37,39 +102,44 @@ function sampleRingColor(data, fw, fh, acx, acy, dist) {
   return [r / n, g / n, b / n];
 }
 
-function sampleCell(data, fw, fh, cell, layoutW, layoutH, drawCy) {
+function sampleCell(data, fw, fh, cell, layoutW, layoutH) {
   const { cellW, cellH, seed } = cell;
-  const cy = drawCy ?? cell.cy;
   const sx = fw / layoutW;
   const sy = fh / layoutH;
   const x0 = clamp(Math.floor(cell.sampleX * sx), 0, fw - 1);
-  const y0 = clamp(Math.floor((cy - cellH / 2) * sy), 0, fh - 1);
+  const y0 = clamp(Math.floor((cell.cy - cellH / 2) * sy), 0, fh - 1);
   const x1 = clamp(Math.ceil((cell.sampleX + cell.sampleW) * sx), 0, fw);
-  const y1 = clamp(Math.ceil((cy + cellH / 2) * sy), 0, fh);
+  const y1 = clamp(Math.ceil((cell.cy + cellH / 2) * sy), 0, fh);
   const acx = cell.cx * sx;
-  const acy = cy * sy;
+  const acy = cell.cy * sy;
   const cellMin = Math.min(cellW, cellH);
   const analysisR = Math.min(cellW * sx, cellH * sy) * 0.48;
 
-  let avgL = 0;
+  let avgR = 0;
+  let avgG = 0;
+  let avgB = 0;
   let n = 0;
   const step = x1 - x0 > 20 || y1 - y0 > 20 ? 2 : 1;
   for (let py = y0; py < y1; py += step) {
     for (let px = x0; px < x1; px += step) {
       const i = (py * fw + px) * 4;
-      avgL += lum(data[i], data[i + 1], data[i + 2]);
+      avgR += data[i];
+      avgG += data[i + 1];
+      avgB += data[i + 2];
       n++;
     }
   }
   if (!n) return null;
 
-  const brightness = avgL / n / 255;
-  const darkness = 1 - brightness;
-  const maxR = cellMin * lerp(
-    GRID_STYLE.dotMinRatio,
-    GRID_STYLE.dotMaxRatio,
-    Math.pow(darkness, GRID_STYLE.sizeGamma)
+  const [hue, sat] = rgbToHsl(avgR / n, avgG / n, avgB / n);
+  const strength = colorStrength(hue, sat);
+  const smallR = cellMin * GRID_STYLE.dotMinRatio;
+  const largeR = cellMin * lerp(
+    GRID_STYLE.colorDotMinRatio,
+    GRID_STYLE.colorDotMaxRatio,
+    Math.pow(strength, GRID_STYLE.sizeGamma)
   );
+  const targetMaxR = lerp(smallR, largeR, strength);
 
   const ringCount = 3 + (seed % 4);
   const colors = [];
@@ -80,7 +150,7 @@ function sampleCell(data, fw, fh, cell, layoutW, layoutH, drawCy) {
     colors.push(sampleRingColor(data, fw, fh, acx, acy, dist));
   }
 
-  return { colors, maxR, ringCount, seed };
+  return { colors, maxR: targetMaxR, ringCount, seed, strength };
 }
 
 function drawDot(ctx, cx, cy, sample) {
@@ -104,6 +174,43 @@ function drawDot(ctx, cx, cy, sample) {
 
 let analysisCanvas = null;
 let analysisCtx = null;
+let cellState = new Map();
+let cellStateKey = '';
+let lastFrameTime = 0;
+
+function resetCellState(layout) {
+  const key = `${layout.cols}x${layout.rows}`;
+  if (key !== cellStateKey) {
+    cellState = new Map();
+    cellStateKey = key;
+  }
+}
+
+function smoothSample(raw, dt) {
+  const alpha = 1 - Math.exp(-STABILITY.smoothRate * dt);
+  let state = cellState.get(raw.seed);
+
+  if (!state) {
+    state = {
+      maxR: raw.maxR,
+      ringCount: raw.ringCount,
+      colors: raw.colors.map((c) => [...c]),
+    };
+    cellState.set(raw.seed, state);
+    return state;
+  }
+
+  state.ringCount = raw.ringCount;
+  state.maxR = lerp(state.maxR, raw.maxR, alpha);
+  for (let i = 0; i < raw.colors.length; i++) {
+    if (!state.colors[i]) state.colors[i] = [...raw.colors[i]];
+    for (let c = 0; c < 3; c++) {
+      state.colors[i][c] = lerp(state.colors[i][c], raw.colors[i][c], alpha);
+    }
+  }
+
+  return state;
+}
 
 function getAnalysisBuffer(sourceCanvas) {
   const scale = ANALYSIS_W / sourceCanvas.width;
@@ -121,10 +228,15 @@ function getAnalysisBuffer(sourceCanvas) {
   }
 
   analysisCtx.drawImage(sourceCanvas, 0, 0, ANALYSIS_W, ah);
-  return analysisCtx.getImageData(0, 0, ANALYSIS_W, ah);
+  const imageData = analysisCtx.getImageData(0, 0, ANALYSIS_W, ah);
+  return applyColorFilter(imageData);
 }
 
 export function drawOrbGrid(ctx, frame, layout, width, height, time = 0) {
+  const dt = lastFrameTime ? Math.min(0.1, (time - lastFrameTime) / 1000) : 0.016;
+  lastFrameTime = time;
+
+  resetCellState(layout);
   const { data, width: fw, height: fh } = getAnalysisBuffer(frame);
   const cellH = height / layout.rows;
   const offset = ((time / 1000) * ANIM.scrollSpeed) % cellH;
@@ -132,16 +244,26 @@ export function drawOrbGrid(ctx, frame, layout, width, height, time = 0) {
   ctx.fillStyle = CANVAS.bg;
   ctx.fillRect(0, 0, width, height);
 
+  const draws = [];
+
   for (const cell of layout.cells) {
+    const raw = sampleCell(data, fw, fh, cell, width, height);
+    if (!raw) continue;
+
+    const sample = smoothSample(raw, dt);
     const cy = cell.cy - offset;
     const positions = [cy];
     if (cy < cell.cellH * 0.5) positions.push(cy + height);
     if (cy > height - cell.cellH * 0.5) positions.push(cy - height);
 
     for (const drawCy of positions) {
-      const sample = sampleCell(data, fw, fh, cell, width, height, drawCy);
-      if (!sample) continue;
-      drawDot(ctx, cell.cx, drawCy, sample);
+      draws.push({ cx: cell.cx, cy: drawCy, sample });
     }
+  }
+
+  draws.sort((a, b) => a.sample.maxR - b.sample.maxR);
+
+  for (const { cx, cy, sample } of draws) {
+    drawDot(ctx, cx, cy, sample);
   }
 }

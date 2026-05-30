@@ -137,6 +137,9 @@ async function startCamera() {
   video.srcObject = stream;
   await video.play();
 
+  const actualFacing = stream.getVideoTracks()[0]?.getSettings?.()?.facingMode;
+  if (actualFacing) facingMode = actualFacing;
+
   useCamera = true;
   uploadedImage = null;
   syncCanvasToViewport();
