@@ -28,3 +28,4 @@ Open **http://localhost:8080** (use **ngrok** or HTTPS for mobile camera access)
 ## Tune
 
 Edit `js/config.js` for grid size, dot size range, and scroll speed.
+# DotCam
