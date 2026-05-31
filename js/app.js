@@ -64,6 +64,28 @@ function syncCanvasToViewport() {
   if (w !== W || h !== H) setSize(w, h);
 }
 
+function getActiveFacingMode() {
+  return stream?.getVideoTracks()?.[0]?.getSettings?.()?.facingMode || facingMode;
+}
+
+function drawCameraToFrame(vw, vh) {
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale;
+  const dh = vh * scale;
+  const dx = (W - dw) / 2;
+  const dy = (H - dh) / 2;
+
+  frameCtx.save();
+  if (getActiveFacingMode() === 'user') {
+    frameCtx.translate(dx + dw, dy);
+    frameCtx.scale(-1, 1);
+    frameCtx.drawImage(video, 0, 0, dw, dh);
+  } else {
+    frameCtx.drawImage(video, dx, dy, dw, dh);
+  }
+  frameCtx.restore();
+}
+
 function drawSourceToFrame() {
   frameCtx.fillStyle = '#e4e4e4';
   frameCtx.fillRect(0, 0, W, H);
@@ -73,10 +95,7 @@ function drawSourceToFrame() {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh) return false;
-    const scale = Math.max(W / vw, H / vh);
-    const dw = vw * scale;
-    const dh = vh * scale;
-    frameCtx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    drawCameraToFrame(vw, vh);
     return true;
   }
 

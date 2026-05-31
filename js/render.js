@@ -1,4 +1,4 @@
-import { CANVAS, GRID_STYLE, ANIM, COLOR_FILTER, STABILITY } from './config.js';
+import { CANVAS, GRID_STYLE, COLOR_FILTER, STABILITY } from './config.js';
 
 const ANALYSIS_W = 320;
 
@@ -53,7 +53,10 @@ function isAllowedColor(h, s) {
 }
 
 function colorStrength(h, s) {
-  if (!COLOR_FILTER.enabled) return 0;
+  if (!COLOR_FILTER.enabled) {
+    if (s < 0.08) return 0;
+    return clamp01(s / 0.5);
+  }
   if (s < COLOR_FILTER.minSaturation * 0.55) return 0;
   if (!COLOR_FILTER.hues.some((band) => hueMatches(h, band))) return 0;
   return clamp01((s - COLOR_FILTER.minSaturation * 0.55) / (1 - COLOR_FILTER.minSaturation * 0.55));
@@ -238,8 +241,6 @@ export function drawOrbGrid(ctx, frame, layout, width, height, time = 0) {
 
   resetCellState(layout);
   const { data, width: fw, height: fh } = getAnalysisBuffer(frame);
-  const cellH = height / layout.rows;
-  const offset = ((time / 1000) * ANIM.scrollSpeed) % cellH;
 
   ctx.fillStyle = CANVAS.bg;
   ctx.fillRect(0, 0, width, height);
@@ -251,14 +252,7 @@ export function drawOrbGrid(ctx, frame, layout, width, height, time = 0) {
     if (!raw) continue;
 
     const sample = smoothSample(raw, dt);
-    const cy = cell.cy - offset;
-    const positions = [cy];
-    if (cy < cell.cellH * 0.5) positions.push(cy + height);
-    if (cy > height - cell.cellH * 0.5) positions.push(cy - height);
-
-    for (const drawCy of positions) {
-      draws.push({ cx: cell.cx, cy: drawCy, sample });
-    }
+    draws.push({ cx: cell.cx, cy: cell.cy, sample });
   }
 
   draws.sort((a, b) => a.sample.maxR - b.sample.maxR);

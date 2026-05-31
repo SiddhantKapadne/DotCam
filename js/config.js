@@ -10,7 +10,7 @@ export const GRID_STYLE = {
 };
 
 export const ANIM = {
-  scrollSpeed: 10,
+  scrollSpeed: 0,
 };
 
 /** Temporal smoothing — higher = snappier, lower = steadier dots */
@@ -18,9 +18,9 @@ export const STABILITY = {
   smoothRate: 5,
 };
 
-/** Keep only these hues in colour; everything else → greyscale */
+/** When enabled, only listed hues stay in colour; otherwise all colours pass through */
 export const COLOR_FILTER = {
-  enabled: true,
+  enabled: false,
   minSaturation: 0.16,
   hues: [
     { min: 335, max: 22, wrap: true },  // red
